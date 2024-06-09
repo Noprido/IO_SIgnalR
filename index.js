@@ -1,6 +1,7 @@
 const express = require('express');
-const { HttpServer } = require('@microsoft/signalr'); // Correct import
 const http = require('http');
+const { Server } = require('socket.io'); // Importation correcte pour le serveur Socket.IO
+
 const cors = require('cors');
 const { io } = require("socket.io-client");
 
@@ -8,16 +9,18 @@ const app = express();
 const server = http.createServer(app);
 const port = process.env.PORT || 3000;
 
+app.use(cors());
+
 // Configurer CORS
 const corsOptions = {
-    origin: 'https://immo229-server-1.onrender.com', // Correct URL format
+    origin: 'https://immo229-server-1.onrender.com',
     methods: ['GET', 'POST'],
     allowedHeaders: ['Content-Type']
 };
 
 app.use(cors(corsOptions));
 
-// Créer un hub
+// Créer un ChatHub
 class ChatHub {
     constructor() {
         this.clients = [];
@@ -27,29 +30,25 @@ class ChatHub {
     onConnected(connection) {
         this.clients.push(connection);
 
-        console.log('A user is connected.');
+        console.log('Un utilisateur est connecté.');
 
         // On reçoit un événement "chat data"
         connection.on('chat data', (ChatData) => {
-            // On log
-            console.log('Message reçu:');
-            console.log(ChatData);
+            console.log('Message reçu:', ChatData);
 
-            // On se connecte sur le serveur socket.io
+            const parsedData = JSON.parse(ChatData);
             const socket = io("https://immo229-server-1.onrender.com");
 
-            // Ici on met un écouteur en place
-            socket.on(JSON.parse(ChatData).Id, (Msg) => {
-                this.broadcast(JSON.parse(ChatData).Id, Msg, connection);
+            socket.on(parsedData.Id, (Msg) => {
+                this.broadcast(parsedData.Id, Msg, connection);
             });
 
-            // On émet l'événement "chat data"
-            socket.emit("chat data", ChatData);  
+            socket.emit("chat data", ChatData);
         });
 
         connection.on('close', () => {
             this.clients = this.clients.filter(c => c !== connection);
-            console.log('A user is disconnected.');
+            console.log('Un utilisateur est déconnecté.');
         });
     }
 
@@ -62,17 +61,25 @@ class ChatHub {
     }
 }
 
-const chatHub = new ChatHub();
-const signalRServer = new HttpServer({
-    hub: chatHub
+// Configurer Socket.IO
+const ioServer = new Server(server, {
+    path: '/chat',
+    cors: corsOptions
 });
 
-signalRServer.attach(server, '/chat');
+ioServer.on('connection', (socket) => {
+    const chatHub = new ChatHub();
+    chatHub.onConnected(socket);
+
+    socket.on('disconnect', () => {
+        chatHub.onDisconnected(socket);
+    });
+});
 
 app.get('/', (req, res) => {
-    res.send('SignalR Server is running');
+  res.send('Le serveur SignalR est en cours d\'exécution');
 });
 
 server.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+  console.log(`Le serveur est en cours d'exécution sur le port ${port}`);
 });
